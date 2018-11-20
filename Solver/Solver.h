@@ -20,6 +20,7 @@
 #include "Utility.h"
 #include "LogSwitch.h"
 #include "Problem.h"
+#include "gurobi_c++.h"
 
 
 namespace xxf {
@@ -198,6 +199,8 @@ public:
 protected:
     void init();
     bool optimize(Solution &sln, ID workerId = 0); // optimize by a single worker.
+public:
+    std::string itos(const int i);
     #pragma endregion Method
 
     #pragma region Field
@@ -205,8 +208,14 @@ public:
     Problem::Input input;
     Problem::Output output;
 
+    //struct { // auxiliary data for solver.
+    //    List<List<bool>> isCompatible; // isCompatible[f][g] is true if flight f is compatible with gate g.
+    //} aux;
+
     struct { // auxiliary data for solver.
-        List<List<bool>> isCompatible; // isCompatible[f][g] is true if flight f is compatible with gate g.
+        int maxDegree;
+
+        Arr2D<Length> adjMat; // adjMat[i][j] is the distance of the edge which goes from i to j.
     } aux;
 
     Environment env;

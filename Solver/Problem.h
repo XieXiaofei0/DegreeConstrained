@@ -57,6 +57,8 @@ namespace xxf {
 			//图的边的最大值，算例的度约束最大值
 			MaxEdgeLength = 50,
 			MaxDegreeCons = 7,
+
+            MaxDistance = (1 << 28),
 		};
 #pragma endregion Constant
 

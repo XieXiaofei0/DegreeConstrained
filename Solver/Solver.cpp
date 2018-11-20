@@ -265,25 +265,155 @@ namespace xxf {
 		ID nodeNum = input.graph().nodes().size();
 		ID edgeNum = input.graph().edges().size();
 
+        aux.adjMat.init(nodeNum, nodeNum);               //Intialize array of cost
+        fill(aux.adjMat.begin(), aux.adjMat.end(), Problem::MaxDistance);
+        //for (ID n = 0; n < nodeNum; ++n) { aux.adjMat.at(n, n) = 0; }
+        for (auto e = input.graph().edges().begin(); e != input.graph().edges().end(); ++e) {
+            aux.adjMat.at(e->source(), e->target()) = e->length();
+            aux.adjMat.at(e->target(), e->source()) = e->length();
+        }
+        aux.maxDegree = input.maxdegree();
+
 		// reset solution state.
 		bool status = true;
 		sln.edgeLengthSumOnTree = 0;
 
 		// TODO[0]: replace the following random assignment with your own algorithm.
-		for (int e = 0; !timer.isTimeOut() && (e < nodeNum - 1); ++e) {
-			int index = rand.pick(0, edgeNum);
-			auto &edge(*sln.add_edges());
-			edge.set_id(input.graph().edges(index).id());
-			edge.set_source(input.graph().edges(index).source());
-			edge.set_target(input.graph().edges(index).target());
-			edge.set_length(input.graph().edges(index).length());
-			sln.edgeLengthSumOnTree += input.graph().edges(index).length();   //record obj
-		}
+        GRBEnv *grbenv = NULL;                        //gurobi环境对象:一维数组
+        GRBVar **vars = NULL;                         //gurobi变量对象:二维数组
+        vars = new GRBVar*[nodeNum];
+        for (int i = 0; i < nodeNum; i++)vars[i] = new GRBVar[nodeNum];      //N*N
+
+        try {
+
+            grbenv = new GRBEnv();                   //创建gurobi环境对象
+            GRBModel model = GRBModel(*grbenv);        //模型构造器
+
+            // Must set LazyConstraints parameter when using lazy constraints  设置惰性约束变量
+
+            //model.set(GRB_IntParam_LazyConstraints, 1);
+
+            //创建决策变量
+
+            for (int i = 0; i < nodeNum; i++) {                   //无向图
+                for (int j = 0; j <= i; j++) {
+                    if (aux.adjMat.at(i, j) == Problem::MaxDistance) {
+                        vars[i][j] = model.addVar(0.0, 0.0, 0.0, GRB_BINARY, "x_" + itos(i) + "_" + itos(j));
+                        vars[j][i] = model.addVar(0.0, 0.0, 0.0, GRB_BINARY, "x_" + itos(i) + "_" + itos(j));
+                    } else {
+                        vars[i][j] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, "x_" + itos(i) + "_" + itos(j));    //下界、上界、目标系数、变量类型、变量名
+                        vars[j][i] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, "x_" + itos(i) + "_" + itos(j));
+                    }
+                }
+            }
+
+            //目标：最小化目标函数值
+
+            GRBLinExpr obj = 0.0;
+            for (int i = 0; i < nodeNum; i++)
+                for (int j = 0; j <= i; j++)obj += vars[i][j] * aux.adjMat.at(i, j);
+            model.setObjective(obj, GRB_MINIMIZE);
+
+            //创建约束条件（覆盖所有节点），所有节点度>=1;节点的度小于给定值
+
+            for (int j = 0; j < nodeNum; j++) {
+
+                GRBLinExpr expr = 0;
+
+                for (int i = 0; i < nodeNum; i++) {
+                    expr += vars[j][i];
+                }
+
+                model.addConstr(expr, GRB_GREATER_EQUAL, 1, "deg_greater_equal_" + itos(j));
+                model.addConstr(expr, GRB_LESS_EQUAL, aux.maxDegree, "deg_less_equal_" + itos(j));
+            }
+
+            //创建约束条件，树无环
+            GRBLinExpr expredge = 0;
+            for (int j = 0; j < nodeNum; j++)
+                for (int i = 0; i <= j; i++)expredge += vars[j][i];
+            model.addConstr(expredge == nodeNum - 1, "Degree constraint of minimum spanning tree");
+
+
+            //for (int j = 0; j < input.exclusiveNodeSet; j++) {
+            //    GRBLinExpr left_expr_num = 0;                            //互斥节点集的点的入度之和
+            //    for (int m = 0; m < input.vecElusiveSet[j].num; m++) {
+            //        GRBLinExpr left_expr = 0;
+            //        for (int n = 0; n < input.nodesNum; n++)left_expr += vars[n][input.vecElusiveSet[j].ExcluSet[m].id];
+            //        left_expr_num += left_expr;
+            //    }
+            //    model.addConstr(left_expr_num, GRB_LESS_EQUAL, 1, "deg_less_equal_" + itos(j));    //互斥节点集入度之和<=1
+            //}
+
+            // Optimize model
+
+            model.optimize();
+
+            // Extract solution
+
+            if (model.get(GRB_IntAttr_SolCount) > 0)         //SolCount:从最近的优化器中得到的解决方案的数量
+            {
+
+                double **sol = new double*[nodeNum];
+                for (int i = 0; i < nodeNum; i++)
+                    sol[i] = model.get(GRB_DoubleAttr_X, vars[i], nodeNum);   //得到当前解决方法中的变量值
+
+                for (int i = 0; i < nodeNum; i++)
+                    for (int j = 0; j <= i; j++)
+                        if (sol[i][j] > 0.5)sln.edgeLengthSumOnTree += aux.adjMat.at(i, j);
+
+                cout << "Sol Obj: " << sln.edgeLengthSumOnTree << endl;
+
+                //vector<int> tour;                        //记录路径顺序
+
+                //findtour(input, output, sol);              //找到路径
+
+                //output.obj = model.get(GRB_DoubleAttr_ObjVal);
+
+                //cout << "Tour: ";
+                //for (int i = 0; i < tour.size(); i++)
+                //	cout << tour[i] << " ";
+                //cout << endl;
+
+                cout << "Obj: " << model.get(GRB_DoubleAttr_ObjVal) << endl;
+
+                for (int i = 0; i < nodeNum; i++)
+                    delete[] sol[i];
+                delete[] sol;
+                //vector<int>().swap(tour);
+
+            } else return false;    //没有路径
+        } catch (GRBException e) {
+            cout << "Error number: " << e.getErrorCode() << endl;
+            cout << e.getMessage() << endl;
+        } catch (...) {
+            cout << "Error during optimization" << endl;
+        }
+
+        for (size_t i = 0; i < nodeNum; i++)            //释放空间
+            delete[] vars[i];
+        delete[] vars;
+        delete grbenv;
+		//for (int e = 0; !timer.isTimeOut() && (e < nodeNum - 1); ++e) {
+		//	int index = rand.pick(0, edgeNum);
+		//	auto &edge(*sln.add_edges());
+		//	edge.set_id(input.graph().edges(index).id());
+		//	edge.set_source(input.graph().edges(index).source());
+		//	edge.set_target(input.graph().edges(index).target());
+		//	edge.set_length(input.graph().edges(index).length());
+		//	sln.edgeLengthSumOnTree += input.graph().edges(index).length();   //record obj
+		//}
 
 
 		Log(LogSwitch::Xxf::Framework) << "worker " << workerId << " ends." << endl;
 		return status;
 	}
+
+    std::string Solver::itos(const int i) {
+        std::stringstream s;
+        s << i;
+        return s.str();
+    }
 #pragma endregion Solver
 
 }

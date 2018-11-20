@@ -99,7 +99,7 @@ namespace xxf {
 	void Simulator::debug() {   //¶ÁÈëÒ»¸öËãÀı
 		Task task;
 		task.instSet = "";
-		task.instId = "rand.v50e400dc3";
+		task.instId = "rand.v200e5000dc2";
 		task.randSeed = "1500972793";
 		//task.randSeed = to_string(RandSeed::generate());
 		task.timeout = "180";
